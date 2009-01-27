@@ -1,10 +1,8 @@
 #!/usr/bin/ruby
-# $Id: itunes-rsync.rb,v 1.1 2009/01/27 08:49:12 jcs Exp $
+# $Id: itunes-rsync.rb,v 1.5 2009/01/27 09:11:14 jcs Exp $
 #
-# rsync an itunes playlist with another directory, most likely a usb music
-# device
-#
-# requires the rubyosa gem ("sudo gem install rubyosa")
+# rsync the files of an itunes playlist with another directory, most likely a
+# usb music device.  requires the rubyosa gem ("sudo gem install rubyosa")
 #
 # Copyright (c) 2009 joshua stein <jcs@jcs.org>
 #
@@ -92,7 +90,7 @@ gcd = ""
 end
 
 # setup work dir
-td = `mktemp -d /tmp/itunesrsync.XXXXX`.strip
+td = `mktemp -d /tmp/itunes-rsync.XXXXX`.strip
 
 # mirror directory structure and create symlinks
 print "linking files under #{td}/... "
@@ -102,10 +100,11 @@ tracks.each do |t|
   tmppath = "#{td}/#{shortpath}"
 
   if !Dir[File.dirname(tmppath)].any?
+    # i'm too lazy to emulate -p with Dir.mkdir
     system("mkdir", "-p", File.dirname(tmppath))
   end
 
-  system("ln", "-s", t, tmppath)
+  File.symlink(t, tmppath)
 end
 
 puts "done."
