@@ -2,9 +2,14 @@
 # $Id: itunes-rsync.rb,v 1.5 2009/01/27 09:11:14 jcs Exp $
 #
 # rsync the files of an itunes playlist with another directory, most likely a
-# usb music device.  requires the rubyosa gem ("sudo gem install rubyosa")
+# usb music device.
 #
-# Copyright (c) 2009 joshua stein <jcs@jcs.org>
+# creates symlinks in a scratch directory pointing to the real destination
+# directory, then uses rsync to actually copy them out to the destination.
+#
+# requires the appscript gem
+#
+# Copyright (c) 2009, 2012 joshua stein <jcs@jcs.org>
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -31,7 +36,9 @@
 #
 
 require "rubygems"
-require "rbosa"
+require "appscript"
+$: << File.dirname(__FILE__)
+require "appscript_itunes_fix"
 
 if !ARGV[1]
   puts "usage: #{$0} <itunes playlist> <destination directory>"
@@ -53,19 +60,16 @@ end
 
 print "querying itunes for playlist \"#{playlist}\"... "
 
-# disable a stupid xml deprecation warning
-$VERBOSE = nil
-itunes = OSA.app("iTunes")
+itunes = Appscript.app.by_name("iTunes", ITunesFix)
 
-itpl = itunes.sources.select{|s| s.name == "Library" }.first.
-  user_playlists.select{|p| p.name.downcase == playlist.downcase }.first
+itpl = itunes.playlists[playlist]
 
 if !itpl
   puts "could not locate, exiting"
   exit
 end
 
-tracks = itpl.file_tracks.map{|t| t.location }
+tracks = itpl.file_tracks.get.map{|t| t.location.get.path }
 
 puts "found #{tracks.length} track#{tracks.length == 1 ? '' : 's'}."
 
