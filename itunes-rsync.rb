@@ -14,7 +14,7 @@
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
 # are met:
-# 
+#
 # 1. Redistributions of source code must retain the above copyright
 #    notice, this list of conditions and the following disclaimer.
 # 2. Redistributions in binary form must reproduce the above copyright
@@ -22,7 +22,7 @@
 #    documentation and/or other materials provided with the distribution.
 # 3. The name of the author may not be used to endorse or promote products
 #    derived from this software without specific prior written permission.
-# 
+#
 # THIS SOFTWARE IS PROVIDED BY THE AUTHOR "AS IS" AND ANY EXPRESS OR
 # IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
 # OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
@@ -55,25 +55,39 @@ if Dir[ARGV[1]].any?
   end
 else
   puts "error: directory \"#{destdir}\" does not exist, exiting"
-  exit
+  exit 1
 end
 
-print "querying itunes for playlist \"#{playlist}\"... "
+puts "querying itunes for playlist \"#{playlist}\"..."
 
 itunes = Appscript.app.by_name("iTunes", ITunesFix)
+begin
+  if !(itpl = itunes.playlists[playlist])
+    raise "no such playlist with that name"
+  end
 
-itpl = itunes.playlists[playlist]
-
-if !itpl
-  puts "could not locate, exiting"
-  exit
+  tracks = itpl.file_tracks.get.map{|t| t.location.get.path }
+rescue => e
+  puts "could not find playlist #{playlist.inspect}, exiting"
+  exit 1
 end
 
-tracks = itpl.file_tracks.get.map{|t| t.location.get.path }
+# figure out how much space we're going to take
+bytes = 0
+tracks.each{|t| bytes += File.size(t) }
+mbytes = bytes.to_f / (1024 * 1024)
 
-puts "found #{tracks.length} track#{tracks.length == 1 ? '' : 's'}."
+puts "found #{tracks.length} track#{tracks.length == 1 ? "" : "s"} with " +
+  "size #{sprintf("%0.2fMb", mbytes)}"
 
-# figure out where all of them are stored by checking for the greatest common
+# make sure the destination can take it
+df_m = `df -m #{destdir}`.split("\n").last.split(" ")[1].to_i
+if mbytes > df_m
+  puts "error: #{destdir} has size of #{df_m}Mb, need #{mbytes.ceil}Mb to sync"
+  exit 1
+end
+
+# figure out where all tracks are stored by checking for the greatest common
 # directory of every track
 gcd = ""
 (1 .. tracks.map{|t| t.length }.max).each do |s|
@@ -93,18 +107,18 @@ gcd = ""
   end
 end
 
-# setup work dir
 td = `mktemp -d /tmp/itunes-rsync.XXXXX`.strip
 
-# mirror directory structure and create symlinks
+# link each track into the workspace
 print "linking files under #{td}/... "
-
 tracks.each do |t|
   shortpath = t[gcd.length .. t.length - 1]
   tmppath = "#{td}/#{shortpath}"
 
+  # restrict pathnames to avoid indexing problems on some players/filesystems
+  tmppath.gsub!(/[^A-Za-z0-9\.\/,' -]/, "_")
+
   if !Dir[File.dirname(tmppath)].any?
-    # i'm too lazy to emulate -p with Dir.mkdir
     system("mkdir", "-p", File.dirname(tmppath))
   end
 
@@ -115,7 +129,8 @@ puts "done."
 
 # times don't ever seem to match up, so only check size
 puts "rsyncing to #{destdir}... "
-system("rsync", "-Lrv", "--size-only", "--delete", "#{td}/", destdir)
+system("rsync", "-Lrv", "--size-only", "--progress", "--delete",
+  "#{td}/", destdir)
 
 print "cleaning up... "
 system("rm", "-rf", td)
