@@ -1,5 +1,5 @@
 #!/usr/bin/ruby
-# Copyright (c) 2009, 2012, 2013 joshua stein <jcs@jcs.org>
+# Copyright (c) 2013 joshua stein <jcs@jcs.org>
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -25,65 +25,37 @@
 # THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
-require File.dirname(__FILE__) << "/lib/itunes"
+require File.dirname(__FILE__) + "/lib/itunes"
 
 if !ARGV[1]
-  puts "usage: #{$0} <itunes playlist> <destination directory>"
+  puts "usage: #{$0} <itunes playlist> <root directory of media>"
   exit
 end
 
 playlist = ARGV[0]
-
-if Dir[ARGV[1]].any?
-  destdir = ARGV[1]
-
-  if !destdir.match(/\/$/)
-    destdir += "/"
-  end
-else
-  puts "error: directory \"#{destdir}\" does not exist, exiting"
-  exit 1
+destdir = ARGV[1]
+if !destdir.match(/\/$/)
+  destdir << "/"
 end
-
-puts "querying itunes for playlist \"#{playlist}\"..."
 
 it = ITunes.new
 pl = it.playlist(playlist)
 
-mbytes = pl.total_bytes.to_f / (1024 * 1024)
+albums = {}
+pl.tracks.each do |track|
+  artist = (track.compilation? ? "Various" : track.album_artist_or_artist)
+  album = "#{artist} - #{track.album}"
+  albums[album] ||= []
 
-puts "found #{pl.tracks.length} track#{pl.tracks.length == 1 ? "" : "s"} " <<
-  "with size " << sprintf("%0.2fMb", mbytes)
-
-# make sure the destination can hold this playlist
-df_m = `df -m #{destdir}`.split("\n").last.split(" ")[1].to_i
-if mbytes > df_m
-  puts "error: #{destdir} has size of #{df_m}Mb, need #{mbytes.ceil}Mb to sync"
-  exit 1
+  albums[album].push track
 end
 
-td = `mktemp -d /tmp/itunes-rsync.XXXXX`.strip
-
-# link each track into the workspace
-print "linking files under #{td}/... "
-pl.tracks.each do |t|
-  tmppath = td + "/" + t.safe_filename_without_gcd
-
-  if !Dir[File.dirname(tmppath)].any?
-    system("mkdir", "-p", File.dirname(tmppath))
+# on ruby 1.9, Array#shuffle is a proper fisher-yates algorithm
+albums.keys.shuffle.each do |album|
+  # sort album tracks by disc number, then track number
+  albums[album].sort_by{|t| sprintf("%02d", t.disc_number) << "-" <<
+  sprintf("%02d", t.track_number) << "-" << t.name }.each do |t|
+    # show the track relative to the playlist's gcd
+    print destdir + t.safe_filename_without_gcd + "\r\n"
   end
-
-  File.symlink(t.location, tmppath)
 end
-
-puts "done."
-
-# file times don't ever seem to match up, so only check size
-puts "rsyncing to #{destdir}... "
-system("rsync", "-Lrv", "--size-only", "--progress", "--delete", "#{td}/",
-  destdir)
-
-print "cleaning up... "
-system("rm", "-rf", td)
-
-puts "done."
